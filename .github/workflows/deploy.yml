@@ -1,0 +1,58 @@
+name: Deploy site
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate catalog.json (if present)
+        run: |
+          if [ -f catalog.json ]; then
+            python3 -c "
+          import json, sys
+          data = json.load(open('catalog.json', encoding='utf-8'))
+          books = data.get('books')
+          assert isinstance(books, list), 'catalog.json: \"books\" must be a list'
+          for b in books:
+              assert isinstance(b.get('title'), str) and b['title'], 'catalog.json: every book needs a title'
+          print(f'catalog.json OK: {len(books)} books')
+          "
+          else
+            echo "No catalog.json yet -- site will show its empty-catalog state."
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - run: npm run build
+      - run: cp catalog.json dist/catalog.json 2>/dev/null || true
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

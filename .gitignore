@@ -1,0 +1,8 @@
+node_modules/
+dist/
+__pycache__/
+
+# Miriam.mdb holds patron/loan data (Customers, Rents, History tables) --
+# extraction happens locally on the library PC and only catalog.json
+# (title/author/genre/status) ever gets committed.
+Miriam.mdb
