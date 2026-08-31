@@ -61,8 +61,8 @@ import concurrent.futures
 
 GENRE_TAG_HELP = """
   language:   עברית, אנגלית               (from the title's own script)
-  age group:  ילדים, נוער, מבוגרים         (from Open Library, default מבוגרים)
-  topic:      עיון, ספרות יפה, פנטזיה ומד"ב, קומיקס, יהדות, ביוגרפיה
+  age group:  ילדים, נוער, מבוגרים         (Open Library + Miriam's own category/stype, default מבוגרים)
+  topic:      עיון, ספרות יפה, פנטזיה ומד"ב, קומיקס, יהדות, ביוגרפיה  (same two sources, left untagged if neither has a signal)
 """
 
 HEBREW_RE = re.compile(r"[\u0590-\u05FF]")
@@ -85,9 +85,55 @@ AGE_KEYWORDS = [
     ("children", "ילדים"),
 ]
 
+# Miriam's own category/stype fields are messy free text, but a real-world
+# scan of this library's data (5,476 books) showed a small, clean vocabulary
+# underneath the noise -- these two fields alone cover ~73%/56% of books.
+# Used as a second signal alongside Open Library, since Open Library barely
+# indexes Hebrew-language Israeli-published titles (only ~2% of this real
+# catalog got anything beyond the bare default from it alone).
+LOCAL_AGE_KEYWORDS = [
+    ("ילדים", "ילדים"),
+    ("נוער", "נוער"),
+    ("מבוגרים", "מבוגרים"),
+    ("ראשית קריאה", "ילדים"),  # "early reading" (beginner readers)
+]
+LOCAL_TOPIC_KEYWORDS = [
+    ("קומיקס", "קומיקס"),
+    ("יהדות", "יהדות"),
+    ("פנטזיה", "פנטזיה ומד\"ב"),
+    ("מדע", "עיון"),
+    ("עיון", "עיון"),
+    ("מתח", "ספרות יפה"),  # "thriller/suspense"
+    ("שיר", "ספרות יפה"),  # "poem(s)"
+    ("טיולים", "עיון"),  # "travel"
+]
+
 
 def clean(value):
     return (str(value).strip() if value is not None else "")
+
+
+def fix_mixed_unicode(value):
+    """access_parser-only fix: Access's "Unicode Compression" stores mixed-
+    language memo fields with ASCII as 1 byte/char but non-Latin1 (e.g.
+    Hebrew) as 2-byte UTF-16LE, concatenated in the same field. access_parser
+    doesn't decompress that, so it hands back each UTF-16LE byte pair as two
+    separate Latin-1 characters -- the second one always literal '\\x05' for
+    Hebrew, since the whole Hebrew block is U+0590-U+05FF. Recombine those
+    pairs. pyodbc (the real Windows path) decodes this correctly already, so
+    this is only needed for the pure-Python fallback."""
+    if not value:
+        return value
+    out = []
+    i = 0
+    while i < len(value):
+        if i + 1 < len(value) and value[i + 1] == "\x05":
+            out.append(chr(ord(value[i]) + 0x0500))
+            i += 2
+        else:
+            out.append(value[i])
+            i += 1
+    return "".join(out)
 
 
 def detect_language(title):
@@ -127,43 +173,92 @@ def fetch_book_subjects(title, author):
                 continue
             print(f"  (lookup failed for {title!r}: {e})")
             return []
+        except (urllib.error.URLError, TimeoutError) as e:
+            # transient network hiccup (timeout, connection reset) -- not a
+            # throttle response, so a short retry is enough
+            if attempt < 3:
+                print(f"  (network error, retrying {title!r}: {e})")
+                time.sleep(2)
+                continue
+            print(f"  (lookup failed for {title!r}: {e})")
+            return []
         except Exception as e:
             print(f"  (lookup failed for {title!r}: {e})")
             return []
     return []
 
 
+AGE_TAGS = ("ילדים", "נוער", "מבוגרים")
+
+
 def tags_from_categories(subjects):
-    """Pure mapping: lowercased Open Library subject strings -> our age/topic tags."""
+    """Pure mapping: lowercased Open Library subject strings -> our age/topic
+    tags. No forced default here -- an empty/partial result is expected and
+    normal (Open Library has thin coverage for Hebrew titles); classify_genres
+    only falls back to a generic default if every source comes up empty."""
     text = " ".join(subjects)
-    tags = [next((tag for kw, tag in AGE_KEYWORDS if kw in text), "מבוגרים")]
+    tags = [tag for kw, tag in AGE_KEYWORDS if kw in text]
 
     for kw, tag in TOPIC_KEYWORDS:
         if kw in text and tag not in tags:
             tags.append(tag)
-    if "fiction" in text and "פנטזיה ומד\"ב" not in tags and "קומיקס" not in tags:
+    if "fiction" in text and not any(t in tags for t in ("פנטזיה ומד\"ב", "קומיקס", "ספרות יפה")):
         tags.append("ספרות יפה")
-    elif not any(tag in tags for tag in ("קומיקס", "ביוגרפיה", "יהדות", "פנטזיה ומד\"ב", "ספרות יפה")):
-        tags.append("עיון")
 
     return tags
 
 
-def classify_genres(title, author):
+def tags_from_local_category(category, stype):
+    """Pure mapping: Miriam's own (messy) category/stype fields -> our tags,
+    via the keyword vocabulary in LOCAL_AGE_KEYWORDS/LOCAL_TOPIC_KEYWORDS."""
+    text = f"{category} {stype}"
+    tags = []
+    for kw, tag in LOCAL_AGE_KEYWORDS:
+        if kw in text and tag not in tags:
+            tags.append(tag)
+    for kw, tag in LOCAL_TOPIC_KEYWORDS:
+        if kw in text and tag not in tags:
+            tags.append(tag)
+    return tags
+
+
+def classify_genres(title, author, category="", stype=""):
     subjects = fetch_book_subjects(title, author)
-    return [detect_language(title)] + tags_from_categories(subjects)
+    tags = [detect_language(title)]
+    for tag in tags_from_categories(subjects) + tags_from_local_category(category, stype):
+        if tag not in tags:
+            tags.append(tag)
+
+    # Age defaults to מבוגרים when unknown -- but topic is left untagged when
+    # unknown rather than guessing עיון, since for this fiction/kids-heavy
+    # collection "assume non-fiction" is wrong more often than it's right.
+    if not any(tag in tags for tag in AGE_TAGS):
+        tags.append("מבוגרים")
+    return tags
 
 
 def _self_check():
     assert detect_language("הארי פוטר") == "עברית"
     assert detect_language("Harry Potter") == "אנגלית"
 
-    assert tags_from_categories([]) == ["מבוגרים", "עיון"]
+    assert fix_mixed_unicode("") == ""
+    assert fix_mixed_unicode("Witch 2 ") == "Witch 2 "  # pure ASCII: untouched
+    assert fix_mixed_unicode("Ô\x05Ô\x05Ù\x05â\x05Ü\x05Þ\x05Õ\x05ê\x05") == "ההיעלמות"
+    assert fix_mixed_unicode("Witch 2 Ô\x05Ô\x05Ù\x05â\x05Ü\x05Þ\x05Õ\x05ê\x05") == "Witch 2 ההיעלמות"
+
+    assert tags_from_categories([]) == []  # no forced default anymore
     assert tags_from_categories(["juvenile fiction"]) == ["ילדים", "ספרות יפה"]
     assert tags_from_categories(["young adult fiction / fantasy"]) == ["נוער", "פנטזיה ומד\"ב"]
-    assert tags_from_categories(["comics & graphic novels"]) == ["מבוגרים", "קומיקס"]
-    assert tags_from_categories(["biography & autobiography"]) == ["מבוגרים", "ביוגרפיה"]
-    assert tags_from_categories(["religion / judaism"]) == ["מבוגרים", "יהדות"]
+    assert tags_from_categories(["comics & graphic novels"]) == ["קומיקס"]
+    assert tags_from_categories(["biography & autobiography"]) == ["ביוגרפיה"]
+    assert tags_from_categories(["religion / judaism"]) == ["יהדות"]
+
+    assert tags_from_local_category("", "") == []
+    assert tags_from_local_category("ילדים ונוער", "") == ["ילדים", "נוער"]
+    assert tags_from_local_category("מבוגרים", "קומיקס") == ["מבוגרים", "קומיקס"]
+    assert tags_from_local_category("ראשית קריאה", "") == ["ילדים"]
+    assert tags_from_local_category("אנגלית ילדים", "") == ["ילדים"]
+
     print("self-check OK")
 
 
@@ -184,12 +279,15 @@ def load_previous_genres(out_path):
 
 
 def read_movies_from_access(db_path):
-    """Real path: read title/author/instore rows straight out of Miriam.mdb via ODBC."""
-    try:
-        import pyodbc
-    except ImportError:
-        print("Missing dependency. Run:  pip install pyodbc")
-        sys.exit(1)
+    """Real path (Windows): read title/author/instore rows straight out of
+    Miriam.mdb via ODBC. Raises ImportError if pyodbc or the actual Access
+    driver isn't available, so main() can fall back to the pure-Python
+    reader on platforms without them (checked upfront, rather than trying
+    to connect and pattern-matching the failure message)."""
+    import pyodbc
+
+    if "Microsoft Access Driver (*.mdb, *.accdb)" not in pyodbc.drivers():
+        raise ImportError("Microsoft Access ODBC driver not registered")
 
     conn_str = (
         r"DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};"
@@ -219,13 +317,57 @@ def read_movies_from_access(db_path):
     except pyodbc.Error:
         pass
 
-    cursor.execute("SELECT movie_id, movie_name, author, actor, instore FROM Movies")
+    cursor.execute("SELECT movie_id, movie_name, author, actor, instore, category, stype FROM Movies")
     rows = [
-        (clean(movie_id), clean(movie_name), clean(publisher), clean(real_author), instore)
-        for movie_id, movie_name, publisher, real_author, instore in cursor.fetchall()
+        (clean(movie_id), clean(movie_name), clean(publisher), clean(real_author), instore, clean(category), clean(stype))
+        for movie_id, movie_name, publisher, real_author, instore, category, stype in cursor.fetchall()
         if clean(movie_name)
     ]
     conn.close()
+    return library_name, rows
+
+
+def read_movies_pure_python(db_path):
+    """Fallback for machines without the Windows Access ODBC driver (e.g. this
+    Ubuntu dev box): reads the same tables/columns via access_parser, a pure-
+    Python .mdb reader, instead of pyodbc. Used automatically -- same command,
+    same output shape -- whenever pyodbc isn't available."""
+    from access_parser import AccessParser
+
+    db = AccessParser(db_path)
+
+    library_name = ""
+    try:
+        store = db.parse_table("Store")
+        names = store.get("store_name", [])
+        if names and names[0]:
+            library_name = fix_mixed_unicode(clean(names[0]))
+    except Exception:
+        pass
+
+    movies = db.parse_table("Movies")
+    columns = (
+        movies["movie_id"],
+        movies["movie_name"],
+        movies["author"],
+        movies["actor"],
+        movies["instore"],
+        movies["category"],
+        movies["stype"],
+    )
+    rows = [
+        (
+            clean(movie_id),
+            fix_mixed_unicode(clean(movie_name)),
+            fix_mixed_unicode(clean(publisher)),
+            fix_mixed_unicode(clean(real_author)),
+            instore,
+            fix_mixed_unicode(clean(category)),
+            fix_mixed_unicode(clean(stype)),
+        )
+        for movie_id, movie_name, publisher, real_author, instore, category, stype in zip(*columns)
+        if clean(movie_name)
+    ]
     return library_name, rows
 
 
@@ -234,27 +376,29 @@ def read_movies_from_access(db_path):
 # Miriam.mdb or the Windows-only Access ODBC driver. Not used in production.
 # Real, well-known titles on purpose -- Open Library actually has subject data
 # for these, unlike most obscure Hebrew community-library inventory.
+# Trailing ("", "") on each row is category/stype -- left blank since mock
+# mode exists to exercise the Open Library lookup, not the local fallback.
 MOCK_MOVIES_POOL = [
-    ("1", "הארי פוטר ואבן החכמים", "", "ג'יי קיי רואולינג", 1),
-    ("2", "Harry Potter and the Philosopher's Stone", "", "J.K. Rowling", 1),
-    ("3", "The Hobbit", "", "J.R.R. Tolkien", 0),
-    ("4", "Dune", "", "Frank Herbert", 1),
-    ("5", "The Hunger Games", "", "Suzanne Collins", 1),
-    ("6", "פו הדב", "", "א.א. מילן", 1),
-    ("7", "Winnie-the-Pooh", "", "A.A. Milne", 1),
-    ("8", "Curious George", "", "H.A. Rey", 1),
-    ("9", "Percy Jackson and the Olympians", "", "Rick Riordan", 1),
-    ("10", "Diary of a Wimpy Kid", "", "Jeff Kinney", 1),
-    ("11", "Maus", "", "Art Spiegelman", 1),
-    ("12", "Persepolis", "", "Marjane Satrapi", 0),
-    ("13", "Watchmen", "", "Alan Moore", 1),
-    ("14", "Steve Jobs", "", "Walter Isaacson", 1),
-    ("15", "Anne Frank: The Diary of a Young Girl", "", "Anne Frank", 1),
-    ("16", "Sapiens: A Brief History of Humankind", "", "Yuval Noah Harari", 1),
-    ("17", "A Brief History of Time", "", "Stephen Hawking", 1),
-    ("18", "The Chosen", "", "Chaim Potok", 1),
-    ("19", "תולדות עם ישראל", "", "פרופ' כהן", 1),
-    ("20", "1984", "", "George Orwell", 0),
+    ("1", "הארי פוטר ואבן החכמים", "", "ג'יי קיי רואולינג", 1, "", ""),
+    ("2", "Harry Potter and the Philosopher's Stone", "", "J.K. Rowling", 1, "", ""),
+    ("3", "The Hobbit", "", "J.R.R. Tolkien", 0, "", ""),
+    ("4", "Dune", "", "Frank Herbert", 1, "", ""),
+    ("5", "The Hunger Games", "", "Suzanne Collins", 1, "", ""),
+    ("6", "פו הדב", "", "א.א. מילן", 1, "", ""),
+    ("7", "Winnie-the-Pooh", "", "A.A. Milne", 1, "", ""),
+    ("8", "Curious George", "", "H.A. Rey", 1, "", ""),
+    ("9", "Percy Jackson and the Olympians", "", "Rick Riordan", 1, "", ""),
+    ("10", "Diary of a Wimpy Kid", "", "Jeff Kinney", 1, "", ""),
+    ("11", "Maus", "", "Art Spiegelman", 1, "", ""),
+    ("12", "Persepolis", "", "Marjane Satrapi", 0, "", ""),
+    ("13", "Watchmen", "", "Alan Moore", 1, "", ""),
+    ("14", "Steve Jobs", "", "Walter Isaacson", 1, "", ""),
+    ("15", "Anne Frank: The Diary of a Young Girl", "", "Anne Frank", 1, "", ""),
+    ("16", "Sapiens: A Brief History of Humankind", "", "Yuval Noah Harari", 1, "", ""),
+    ("17", "A Brief History of Time", "", "Stephen Hawking", 1, "", ""),
+    ("18", "The Chosen", "", "Chaim Potok", 1, "", ""),
+    ("19", "תולדות עם ישראל", "", "פרופ' כהן", 1, "", ""),
+    ("20", "1984", "", "George Orwell", 0, "", ""),
 ]
 
 
@@ -283,7 +427,17 @@ def main():
         print(f"Running in --mock mode ({mock_count}): skipping Miriam.mdb, using fake sample rows.")
         library_name, rows = read_movies_mock(mock_count)
     else:
-        library_name, rows = read_movies_from_access(db_path)
+        try:
+            library_name, rows = read_movies_from_access(db_path)
+        except ImportError:
+            try:
+                from access_parser import AccessParser  # noqa: F401 -- availability check
+            except ImportError:
+                print("Missing dependency. Run:  pip install pyodbc")
+                print("(or, on a machine without the Windows Access driver:  pip install access_parser)")
+                sys.exit(1)
+            print("pyodbc not available -- reading Miriam.mdb via the pure-Python fallback instead.")
+            library_name, rows = read_movies_pure_python(db_path)
 
     out_path = "catalog.json"
     cached_genres = load_previous_genres(out_path)
@@ -299,8 +453,8 @@ def main():
         completed = 0
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
             futures = {
-                pool.submit(classify_genres, title, real_author): (movie_id, title)
-                for movie_id, title, _publisher, real_author, _instore in to_classify
+                pool.submit(classify_genres, title, real_author, category, stype): (movie_id, title)
+                for movie_id, title, _publisher, real_author, _instore, category, stype in to_classify
             }
             for future in concurrent.futures.as_completed(futures):
                 movie_id, title = futures[future]
@@ -310,7 +464,7 @@ def main():
 
     books = []
     reused, looked_up = 0, 0
-    for movie_id, title, publisher, real_author, instore in rows:
+    for movie_id, title, publisher, real_author, instore, _category, _stype in rows:
         genre = cached_genres.get(movie_id)
         if genre is not None:
             reused += 1
