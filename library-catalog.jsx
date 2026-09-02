@@ -687,9 +687,13 @@ export default function LibraryCatalog() {
       .sort((a, b) => a.title.localeCompare(b.title, "he"));
   }, [books, activeGenre, status, query]);
 
-  if (route.type === "staff") {
-    return <StaffPage onSaved={() => { loadData(); navigate(""); }} onExit={() => navigate("")} />;
-  }
+  // Staff page disabled: it was a browser-based upload flow for a backend
+  // that no longer exists (catalog updates now happen via the git-push
+  // automation instead -- see scripts/SETUP.md). Left in place, unreached,
+  // for whenever it's repurposed (e.g. editing a single book's tags).
+  // if (route.type === "staff") {
+  //   return <StaffPage onSaved={() => { loadData(); navigate(""); }} onExit={() => navigate("")} />;
+  // }
 
   return (
     <div style={{ minHeight: "100%", background: T.wood }} dir="rtl">
@@ -766,7 +770,7 @@ export default function LibraryCatalog() {
         {books === null ? (
           <div style={{ textAlign: "center", color: T.cream, padding: 60, fontFamily: FONT_BODY }}>טוען…</div>
         ) : books.length === 0 ? (
-          <EmptyState onUpload={() => navigate("staff")} />
+          <EmptyState />
         ) : filtered.length === 0 ? (
           <div style={{ textAlign: "center", color: T.cream, padding: 60, fontFamily: FONT_BODY }}>לא נמצאו ספרים תואמים.</div>
         ) : (
@@ -778,7 +782,8 @@ export default function LibraryCatalog() {
         )}
       </div>
 
-      {/* footer */}
+      {/* footer -- staff login link disabled, see the comment above the
+      (also disabled) #staff route in this component for why.
       <div style={{ textAlign: "center", paddingBottom: 30 }}>
         <button
           onClick={() => navigate("staff")}
@@ -797,6 +802,7 @@ export default function LibraryCatalog() {
           <RefreshCw size={13} /> צוות הספרייה — עדכון קטלוג
         </button>
       </div>
+      */}
     </div>
   );
 }
@@ -859,6 +865,8 @@ function EmptyState({ onUpload }) {
       <div style={{ fontSize: 13.5, color: "#C9BBA1", maxWidth: 340 }}>
         יש לייצא דוח מתוכנת מרים ולהעלות אותו כדי להציג כאן את ספרי הספרייה.
       </div>
+      {/* Staff login button disabled -- see the comment above the (also
+      disabled) #staff route in LibraryCatalog for why.
       <button
         onClick={onUpload}
         style={{
@@ -878,6 +886,7 @@ function EmptyState({ onUpload }) {
       >
         <ArrowRight size={15} /> כניסת צוות
       </button>
+      */}
     </div>
   );
 }
