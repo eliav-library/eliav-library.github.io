@@ -43,8 +43,13 @@ never gets written into any script or file.
 ## 5. Test it once by hand
 
 ```
-powershell -File scripts\update-catalog.ps1 -MdbPath "C:\Miriam\Miriam.mdb"
+powershell -ExecutionPolicy Bypass -File scripts\update-catalog.ps1 -MdbPath "C:\Miriam\Miriam.mdb"
 ```
+
+(`-ExecutionPolicy Bypass` only affects this one process -- it doesn't change
+your system's default policy. Without it, Windows' default policy silently
+blocks local .ps1 scripts, which is especially easy to miss under Task
+Scheduler since there's no interactive prompt to notice the failure.)
 
 Should print progress, then either "nothing to push" or "Pushed updated
 catalog.json". Check https://eliav-library.github.io/ a minute later to
@@ -57,7 +62,7 @@ confirm it updated.
 3. Trigger: Daily, pick a time (e.g. 3:00 AM, when the PC is idle).
 4. Action: Start a program.
    - Program/script: `powershell.exe`
-   - Arguments: `-File "C:\eliav-library.github.io\scripts\update-catalog.ps1" -MdbPath "C:\Miriam\Miriam.mdb"`
+   - Arguments: `-ExecutionPolicy Bypass -File "C:\eliav-library.github.io\scripts\update-catalog.ps1" -MdbPath "C:\Miriam\Miriam.mdb"`
    - Start in: `C:\eliav-library.github.io`
 5. Finish. Optionally open the task's Properties -> check "Run whether
    user is logged on or not" so it still runs overnight.

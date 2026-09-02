@@ -2,8 +2,8 @@
 """
 extract_miriam.py
 
-Converts a Miriam library database (Miriam.mdb) into catalog.json,
-the format the library website's staff-upload page understands.
+Converts a Miriam library database (Miriam.mdb) into catalog.json, the
+data file the live site (eliav-library.github.io) reads directly.
 
 HOW TO RUN (Windows):
   1. Install Python from https://python.org (check "Add python.exe to PATH" during install).
@@ -12,8 +12,10 @@ HOW TO RUN (Windows):
   3. Run this script, pointing it at the database file:
          python extract_miriam.py "C:\\Miriam\\Miriam.mdb"
      (If you leave the path off, it defaults to C:\\Miriam\\Miriam.mdb)
-  4. It creates catalog.json next to this script.
-  5. Upload catalog.json on the website's staff page.
+  4. It creates/updates catalog.json next to this script.
+  5. git add/commit/push catalog.json -- the site rebuilds and redeploys
+     automatically on push. See scripts/SETUP.md for the one-time setup
+     of a daily Task Scheduler job that does steps 3-5 automatically.
 
 REQUIREMENTS:
   This needs the "Microsoft Access Driver" to be installed on the PC running
@@ -32,10 +34,11 @@ NOTES ON THE MIRIAM SCHEMA (found by inspecting a real export):
     real book AUTHOR. This script accounts for that.
   - "instore" (1/0) is a live flag Miriam maintains itself: 1 = on the shelf,
     0 = currently checked out. No need to cross-reference loan tables.
-  - Miriam's own "category"/"stype" fields are NOT used for genre anymore --
-    they're free-text and wildly inconsistent (author names, series names,
-    and genres all mixed into the same field). Genre tags are instead looked
-    up per book (see GENRE TAGGING below).
+  - Miriam's own "category"/"stype" fields are messy free text (author names
+    and series names leak into them too), so they're not shown to visitors
+    directly -- but a real scan of this library's data found a clean small
+    keyword vocabulary underneath the noise, so they're used as a second
+    genre-tagging signal alongside an online lookup (see GENRE TAGGING below).
   - Patron/loan tables (Customers, Rents, History) are intentionally never
     read by this script -- the site only ever needs title/author/genre/status.
 
