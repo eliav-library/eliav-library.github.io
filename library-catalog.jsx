@@ -3,30 +3,31 @@ import * as XLSX from "xlsx";
 import { Search, UploadCloud, BookOpen, X, Check, ArrowRight, RefreshCw, ChevronDown, Lock, LogOut, KeyRound } from "lucide-react";
 
 // ---------- design tokens ----------
-// Wood + brass + ivory index-card palette: the page is the reading room,
-// each book is a literal card-catalog card.
+// Bright, playful palette for a community library where half the visitors
+// are kids: a bold teal "reading nook" backdrop with a warm coral accent,
+// instead of the earlier dim wood-and-brass reading-room mood.
 const T = {
-  wood: "#2E2420",
-  woodDeep: "#211A17",
-  brass: "#B98B3E",
-  brassSoft: "#8C6A34",
-  card: "#FBF6E9",
-  cardEdge: "#E4D9BC",
-  ink: "#241C15",
-  inkSoft: "#5B4E3F",
-  cream: "#F3ECDA",
-  green: "#3F5A45",
-  rust: "#9C4A34",
+  wood: "#1B5E58",
+  woodDeep: "#123F3B",
+  brass: "#FF7A50",
+  brassSoft: "#E0916A",
+  card: "#FFFBF3",
+  cardEdge: "#FFDCC2",
+  ink: "#2B2118",
+  inkSoft: "#7A6552",
+  cream: "#FFF6E9",
+  green: "#2FA35C",
+  rust: "#F2543D",
 };
 
-const FONT_DISPLAY = "'Frank Ruhl Libre', 'Times New Roman', serif";
+const FONT_DISPLAY = "'Rubik', 'Heebo', sans-serif";
 const FONT_BODY = "'Heebo', 'Arial Hebrew', sans-serif";
 const DEFAULT_STAFF_CODE = "1234";
 
 const FONT_LINK = (
   <link
     rel="stylesheet"
-    href="https://fonts.googleapis.com/css2?family=Frank+Ruhl+Libre:wght@500;700;900&family=Heebo:wght@300;400;500;700&display=swap"
+    href="https://fonts.googleapis.com/css2?family=Rubik:wght@500;700;900&family=Heebo:wght@300;400;500;700&display=swap"
   />
 );
 
@@ -104,7 +105,7 @@ function Stamp({ status, due }) {
         transform: "rotate(-8deg)",
         border: `2px solid ${isOut ? T.rust : T.green}`,
         color: isOut ? T.rust : T.green,
-        borderRadius: 6,
+        borderRadius: 10,
         padding: "3px 8px",
         fontFamily: FONT_BODY,
         fontWeight: 700,
@@ -130,7 +131,7 @@ function BookCard({ book }) {
         position: "relative",
         background: T.card,
         border: `1px solid ${T.cardEdge}`,
-        borderRadius: 3,
+        borderRadius: 16,
         padding: "18px 16px 14px",
         boxShadow: "0 3px 0 rgba(0,0,0,0.12), 0 8px 16px rgba(0,0,0,0.18)",
         minHeight: 132,
@@ -710,7 +711,7 @@ export default function LibraryCatalog() {
         >
           {activeGenre ? activeGenre : "מה יש על המדף?"}
         </div>
-        <div style={{ color: "#C9BBA1", fontFamily: FONT_BODY, fontSize: 13.5, marginTop: 8 }}>
+        <div style={{ color: "#BFE3DC", fontFamily: FONT_BODY, fontSize: 13.5, marginTop: 8 }}>
           {meta ? `${meta.count} כותרים בקטלוג · עודכן לאחרונה ${new Date(meta.updatedAt).toLocaleDateString("he-IL")}` : ""}
         </div>
 
@@ -744,7 +745,7 @@ export default function LibraryCatalog() {
             flexWrap: "wrap",
             justifyContent: "center",
             padding: "16px 16px 0",
-            borderBottom: `1px solid rgba(185,139,62,0.25)`,
+            borderBottom: `1px solid rgba(255,122,80,0.3)`,
             paddingBottom: 14,
           }}
         >
@@ -814,9 +815,9 @@ function GenreTab({ label, active, onClick }) {
       style={{
         background: active ? T.brass : "transparent",
         color: active ? T.woodDeep : T.cream,
-        border: `1px solid ${active ? T.brass : "rgba(243,236,218,0.35)"}`,
-        borderRadius: "4px 4px 0 0",
-        padding: "7px 14px",
+        border: `1px solid ${active ? T.brass : "rgba(255,246,233,0.35)"}`,
+        borderRadius: 20,
+        padding: "7px 16px",
         fontFamily: FONT_BODY,
         fontSize: 12.5,
         fontWeight: active ? 700 : 400,
@@ -862,7 +863,7 @@ function EmptyState({ onUpload }) {
     <div style={{ textAlign: "center", color: T.cream, padding: "70px 20px", fontFamily: FONT_BODY, display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
       <BookOpen size={34} color={T.brass} />
       <div style={{ fontFamily: FONT_DISPLAY, fontSize: 20, fontWeight: 700 }}>הקטלוג עדיין ריק</div>
-      <div style={{ fontSize: 13.5, color: "#C9BBA1", maxWidth: 340 }}>
+      <div style={{ fontSize: 13.5, color: "#BFE3DC", maxWidth: 340 }}>
         יש לייצא דוח מתוכנת מרים ולהעלות אותו כדי להציג כאן את ספרי הספרייה.
       </div>
       {/* Staff login button disabled -- see the comment above the (also
