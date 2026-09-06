@@ -1,0 +1,16 @@
+{
+  "generatedAt": "x",
+  "libraryName": "Test",
+  "books": [
+    {
+      "id": "1",
+      "title": "א",
+      "author": "",
+      "publisher": "",
+      "genre": [
+        "עברית"
+      ],
+      "status": "available"
+    }
+  ]
+}
