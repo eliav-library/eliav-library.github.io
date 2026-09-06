@@ -1,40 +1,45 @@
-# Setting up the daily catalog update (on the library's Windows PC)
+# Setting up the catalog sync (on the library's Windows PC)
 
-One-time setup so the site updates itself every day. After this, nobody
-needs to touch GitHub -- the PC does its thing, GitHub rebuilds the site
-automatically.
+One-time setup so the site stays current on its own. No git, no cloning a
+repo -- `extract_miriam.py` talks to GitHub directly over HTTPS. The only
+things this PC needs are Python (for `pyodbc`, which you already need for
+Miriam itself) and the one script file.
 
-## 1. Prerequisites on that PC
+**How it behaves once set up:** every ~15 minutes while the PC is on
+(starting the moment you log in), it quietly checks Miriam for new books,
+classifies any it finds, and -- only if something actually changed --
+pushes an update straight to GitHub, which republishes the site
+automatically within about a minute. If nothing changed, it does nothing.
+Running it every 15 minutes rather than at a fixed time or on shutdown is
+deliberate: since the library's open hours vary and the PC isn't on a
+predictable schedule, this way the catalog is never more than ~15 minutes
+stale during however long the PC happens to be on, without needing to
+guess a time or race Windows' shutdown process.
 
-- Python + `pyodbc` (already required for `extract_miriam.py` -- see its
-  own instructions if not done yet).
-- [Git for Windows](https://git-scm.com/download/win) (includes Git
-  Credential Manager, used below).
+It also always re-checks GitHub for the current catalog before doing
+anything else, rather than trusting a local copy -- so if someone edits a
+book's tags directly (on GitHub, or through some future in-site editor),
+this won't silently overwrite that the next time it runs.
 
-## 2. Clone the repo
+## 1. Prerequisites on this PC
+
+- Python from https://python.org (check "Add python.exe to PATH" during
+  install), then in Command Prompt: `pip install pyodbc`.
+- That's it. No Git, no other installs.
+
+## 2. Get the script
+
+Download just this one file (no repo clone needed) to a folder of its
+own, e.g. `C:\eliav-catalog-sync\extract_miriam.py`:
 
 ```
-cd C:\
-git clone https://github.com/eliav-library/eliav-library.github.io.git
-cd eliav-library.github.io
+https://raw.githubusercontent.com/eliav-library/eliav-library.github.io/main/extract_miriam.py
 ```
 
-## 3. Set a commit identity for this clone (once)
+(Save-as from that URL in a browser, or `curl -o extract_miriam.py <url>`
+in Command Prompt if you have curl.)
 
-Git refuses to commit until it knows a name/email, and this setting never
-travels with `git clone` -- it has to be set again on every machine. Run
-this **inside** `C:\eliav-library.github.io` (no `--global`, so it only
-applies to this repo, not anything else on the PC):
-
-```
-git config user.name "Library Staff"
-git config user.email "library-staff@eliav-library.github.io"
-```
-
-(Matches the identity already used for every commit in this repo's
-history, so nobody's personal name/account shows up in it.)
-
-## 4. Create a GitHub access token (once)
+## 3. Create a GitHub access token (once)
 
 1. On any computer, go to GitHub -> Settings -> Developer settings ->
    Personal access tokens -> Fine-grained tokens -> Generate new token.
@@ -43,44 +48,62 @@ history, so nobody's personal name/account shows up in it.)
    Read and write** (nothing else needed).
 3. Copy the token (you won't see it again).
 
-## 5. Let Git remember the token on the library PC
+## 4. Store the token as an environment variable
+
+This PC needs it available every time the script runs, without it being
+typed anywhere or saved in a file:
+
+1. Windows search -> "Environment Variables" -> Edit the system
+   environment variables -> Environment Variables button.
+2. Under "User variables", New...
+   - Variable name: `GITHUB_TOKEN`
+   - Variable value: paste the token
+3. OK out of both dialogs.
+
+(Task Scheduler tasks that run as your user pick up user environment
+variables automatically -- no extra wiring needed.)
+
+## 5. Test it once by hand
+
+Open a **new** Command Prompt (so it picks up the environment variable
+you just set) and run:
 
 ```
-cd C:\eliav-library.github.io
-git push
+cd C:\eliav-catalog-sync
+python extract_miriam.py "C:\Miriam\Miriam.mdb"
 ```
 
-This first push will prompt for credentials: username = your GitHub
-username, password = **paste the token** (not your GitHub password). Git
-Credential Manager stores it securely in Windows after that -- the token
-never gets written into any script or file.
+Should print progress, then either "No changes since the live catalog"
+or "Pushed. N books live". Check https://eliav-library.github.io/ a
+minute later to confirm it updated.
 
-## 6. Test it once by hand
+## 6. Schedule it
 
-```
-powershell -ExecutionPolicy Bypass -File scripts\update-catalog.ps1 -MdbPath "C:\Miriam\Miriam.mdb"
-```
+Open **Task Scheduler** -> Action menu -> **Create Task...** (not "Create
+Basic Task" -- this needs a setting the basic wizard doesn't expose).
 
-(`-ExecutionPolicy Bypass` only affects this one process -- it doesn't change
-your system's default policy. Without it, Windows' default policy silently
-blocks local .ps1 scripts, which is especially easy to miss under Task
-Scheduler since there's no interactive prompt to notice the failure.)
+**General tab:**
+- Name: `Eliav library catalog sync`
 
-Should print progress, then either "nothing to push" or "Pushed updated
-catalog.json". Check https://eliav-library.github.io/ a minute later to
-confirm it updated.
+**Triggers tab** -> New...:
+- Begin the task: **At log on**
+- Advanced settings -> check **Repeat task every: 15 minutes**, **for a
+  duration of: 8 hours** (generously covers a 1-2 hour open day with
+  margin -- harmless if it stops repeating before the PC is turned off,
+  since nothing else depends on it).
+- Also check **Stop task if it runs longer than: 5 minutes** (safety net
+  in case a run ever hangs on a network issue).
 
-## 7. Schedule it to run daily
+**Actions tab** -> New...:
+- Program/script: `python.exe` (if Task Scheduler can't find it, use the
+  full path shown by running `where python` in Command Prompt)
+- Add arguments: `extract_miriam.py "C:\Miriam\Miriam.mdb"`
+- Start in: `C:\eliav-catalog-sync`
 
-1. Open **Task Scheduler** -> Create Basic Task.
-2. Name: `Eliav library catalog update`.
-3. Trigger: Daily, pick a time (e.g. 3:00 AM, when the PC is idle).
-4. Action: Start a program.
-   - Program/script: `powershell.exe`
-   - Arguments: `-ExecutionPolicy Bypass -File "C:\eliav-library.github.io\scripts\update-catalog.ps1" -MdbPath "C:\Miriam\Miriam.mdb"`
-   - Start in: `C:\eliav-library.github.io`
-5. Finish. Optionally open the task's Properties -> check "Run whether
-   user is logged on or not" so it still runs overnight.
+**Settings tab:**
+- Confirm "If the task is already running, then the following rule
+  applies" is set to **Do not start a new instance** (prevents overlapping
+  runs if one is ever still going when the next 15-minute tick arrives).
 
-That's it -- from here on, the .mdb changes on the shelf, this task picks
-it up once a day, and the public site follows automatically.
+Finish. That's the whole setup -- from here on, whenever this PC is on,
+new books show up on the live site within about 15 minutes.

@@ -5,17 +5,24 @@ extract_miriam.py
 Converts a Miriam library database (Miriam.mdb) into catalog.json, the
 data file the live site (eliav-library.github.io) reads directly.
 
+No git involved: this script talks to GitHub's REST API directly (a plain
+HTTPS request with a token) to read and write catalog.json in the live
+repo. See scripts/SETUP.md for the one-time setup (an access token, an
+environment variable, a Task Scheduler entry) -- that's the whole install.
+
 HOW TO RUN (Windows):
   1. Install Python from https://python.org (check "Add python.exe to PATH" during install).
   2. Open Command Prompt and run:
          pip install pyodbc
-  3. Run this script, pointing it at the database file:
+  3. Set the GITHUB_TOKEN environment variable once (see scripts/SETUP.md).
+  4. Run this script, pointing it at the database file:
          python extract_miriam.py "C:\\Miriam\\Miriam.mdb"
      (If you leave the path off, it defaults to C:\\Miriam\\Miriam.mdb)
-  4. It creates/updates catalog.json next to this script.
-  5. git add/commit/push catalog.json -- the site rebuilds and redeploys
-     automatically on push. See scripts/SETUP.md for the one-time setup
-     of a daily Task Scheduler job that does steps 3-5 automatically.
+  5. It fetches the live catalog.json, adds any new books, and pushes the
+     update straight to GitHub if anything actually changed -- which
+     rebuilds and redeploys the site automatically. It also writes a local
+     copy of catalog.json next to itself, purely so you have something to
+     look at if you want to check what it last saw.
 
 REQUIREMENTS:
   This needs the "Microsoft Access Driver" to be installed on the PC running
@@ -24,7 +31,8 @@ REQUIREMENTS:
   install the free "Microsoft Access Database Engine Redistributable" from
   Microsoft's site (search that exact name), then try again.
   It also needs internet access: new books are classified by looking their
-  title/author up on Open Library.
+  title/author up on Open Library, and catalog.json itself is read from and
+  written to GitHub rather than only touching the local disk.
 
 NOTES ON THE MIRIAM SCHEMA (found by inspecting a real export):
   - The catalog table is called "Movies" (legacy naming from the software's
@@ -46,16 +54,18 @@ GENRE TAGGING:
   Each book gets zero or more tags from the fixed list in GENRE_TAG_HELP
   below (language from the title text itself; age group and topic from an
   Open Library lookup by title+author -- no API key needed). To avoid
-  re-querying on every run, books already present in the previous
-  catalog.json (matched by Miriam's movie_id) keep their previously computed
-  tags -- only books new since the last run get looked up. Delete
-  catalog.json to force a full re-classification of every book.
+  re-querying on every run, books already present in the catalog.json
+  fetched from GitHub (matched by Miriam's movie_id) keep their previously
+  computed tags -- only books new since the last run get looked up. This
+  also means tags edited by hand directly on GitHub are never clobbered:
+  each run starts from whatever is actually live, not a stale local copy.
 """
 
 import sys
 import os
 import re
 import json
+import base64
 import time
 import datetime
 import urllib.request
@@ -265,20 +275,77 @@ def _self_check():
     print("self-check OK")
 
 
-def load_previous_genres(out_path):
+def genres_by_id(catalog_data):
     """movie_id -> previously computed genre tags, so unchanged books skip the lookup."""
-    if not os.path.exists(out_path):
-        return {}
-    try:
-        with open(out_path, "r", encoding="utf-8") as f:
-            previous = json.load(f)
-    except (OSError, json.JSONDecodeError):
+    if not catalog_data:
         return {}
     return {
         b["id"]: b["genre"]
-        for b in previous.get("books", [])
+        for b in catalog_data.get("books", [])
         if isinstance(b.get("genre"), list) and b.get("id")
     }
+
+
+def load_local_catalog(out_path):
+    """--mock only: local-disk catalog.json, so testing doesn't need a real token/repo."""
+    if not os.path.exists(out_path):
+        return None
+    try:
+        with open(out_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+GITHUB_REPO = "eliav-library/eliav-library.github.io"
+GITHUB_CONTENTS_URL = f"https://api.github.com/repos/{GITHUB_REPO}/contents/catalog.json"
+COMMIT_IDENTITY = {"name": "Library Staff", "email": "library-staff@eliav-library.github.io"}
+
+
+def github_request(method, token, body=None):
+    data = json.dumps(body).encode("utf-8") if body is not None else None
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "eliav-library-catalog-sync",
+    }
+    if data is not None:
+        headers["Content-Type"] = "application/json"
+    request = urllib.request.Request(GITHUB_CONTENTS_URL, data=data, method=method, headers=headers)
+    try:
+        with urllib.request.urlopen(request, timeout=15) as resp:
+            return resp.status, json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        return e.code, json.loads(e.read())
+
+
+def fetch_remote_catalog(token):
+    """GET the live catalog.json from GitHub. Returns (data, sha); (None, None) if it
+    doesn't exist yet (e.g. very first run)."""
+    status, body = github_request("GET", token)
+    if status == 404:
+        return None, None
+    if status != 200:
+        raise RuntimeError(f"Could not fetch catalog.json from GitHub (HTTP {status}): {body.get('message')}")
+    content = base64.b64decode(body["content"]).decode("utf-8")
+    return json.loads(content), body["sha"]
+
+
+def push_remote_catalog(token, data, sha):
+    """PUT the updated catalog.json back to GitHub. sha=None only on a first-ever push."""
+    content_b64 = base64.b64encode(json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")).decode("ascii")
+    body = {
+        "message": f"Automated catalog update {datetime.date.today().isoformat()}",
+        "content": content_b64,
+        "committer": COMMIT_IDENTITY,
+        "author": COMMIT_IDENTITY,
+        "branch": "main",
+    }
+    if sha:
+        body["sha"] = sha
+    status, resp_body = github_request("PUT", token, body)
+    if status not in (200, 201):
+        raise RuntimeError(f"Could not push catalog.json to GitHub (HTTP {status}): {resp_body.get('message')}")
 
 
 def read_movies_from_access(db_path):
@@ -443,7 +510,19 @@ def main():
             library_name, rows = read_movies_pure_python(db_path)
 
     out_path = "catalog.json"
-    cached_genres = load_previous_genres(out_path)
+    token = None
+    remote_sha = None
+    if mock:
+        previous_catalog = load_local_catalog(out_path)
+    else:
+        token = os.environ.get("GITHUB_TOKEN")
+        if not token:
+            print("Missing GITHUB_TOKEN environment variable -- see scripts/SETUP.md.")
+            sys.exit(1)
+        print("Fetching the live catalog.json from GitHub...")
+        previous_catalog, remote_sha = fetch_remote_catalog(token)
+
+    cached_genres = genres_by_id(previous_catalog)
     to_classify = [r for r in rows if r[0] not in cached_genres]
 
     # Each lookup is network-latency-bound, not CPU-bound, so a few run
@@ -491,13 +570,27 @@ def main():
         "books": books,
     }
 
+    # Always keep a local copy too -- not used for anything, just something
+    # to open and check if you want to see what the last run actually saw.
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
 
-    print(f"Done. Wrote {len(books)} books to {out_path}")
     print(f"Genres: {reused} reused from previous catalog, {looked_up} newly classified.")
     if library_name:
         print(f"Library name detected: {library_name}")
+
+    if mock:
+        print(f"Done. Wrote {len(books)} books to {out_path}")
+        return
+
+    previous_books = previous_catalog.get("books", []) if previous_catalog else []
+    if previous_catalog is not None and books == previous_books:
+        print("No changes since the live catalog -- nothing to push.")
+        return
+
+    print("Pushing updated catalog.json to GitHub...")
+    push_remote_catalog(token, output, remote_sha)
+    print(f"Pushed. {len(books)} books live ({looked_up} newly classified this run).")
 
 
 if __name__ == "__main__":
