@@ -19,7 +19,22 @@ git clone https://github.com/eliav-library/eliav-library.github.io.git
 cd eliav-library.github.io
 ```
 
-## 3. Create a GitHub access token (once)
+## 3. Set a commit identity for this clone (once)
+
+Git refuses to commit until it knows a name/email, and this setting never
+travels with `git clone` -- it has to be set again on every machine. Run
+this **inside** `C:\eliav-library.github.io` (no `--global`, so it only
+applies to this repo, not anything else on the PC):
+
+```
+git config user.name "Library Staff"
+git config user.email "library-staff@eliav-library.github.io"
+```
+
+(Matches the identity already used for every commit in this repo's
+history, so nobody's personal name/account shows up in it.)
+
+## 4. Create a GitHub access token (once)
 
 1. On any computer, go to GitHub -> Settings -> Developer settings ->
    Personal access tokens -> Fine-grained tokens -> Generate new token.
@@ -28,7 +43,7 @@ cd eliav-library.github.io
    Read and write** (nothing else needed).
 3. Copy the token (you won't see it again).
 
-## 4. Let Git remember the token on the library PC
+## 5. Let Git remember the token on the library PC
 
 ```
 cd C:\eliav-library.github.io
@@ -40,7 +55,7 @@ username, password = **paste the token** (not your GitHub password). Git
 Credential Manager stores it securely in Windows after that -- the token
 never gets written into any script or file.
 
-## 5. Test it once by hand
+## 6. Test it once by hand
 
 ```
 powershell -ExecutionPolicy Bypass -File scripts\update-catalog.ps1 -MdbPath "C:\Miriam\Miriam.mdb"
@@ -55,7 +70,7 @@ Should print progress, then either "nothing to push" or "Pushed updated
 catalog.json". Check https://eliav-library.github.io/ a minute later to
 confirm it updated.
 
-## 6. Schedule it to run daily
+## 7. Schedule it to run daily
 
 1. Open **Task Scheduler** -> Create Basic Task.
 2. Name: `Eliav library catalog update`.
