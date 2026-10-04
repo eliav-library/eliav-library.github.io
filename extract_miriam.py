@@ -272,6 +272,35 @@ def _self_check():
     assert tags_from_local_category("ראשית קריאה", "") == ["ילדים"]
     assert tags_from_local_category("אנגלית ילדים", "") == ["ילדים"]
 
+    # The catalog is past 1 MB, so GitHub answers with encoding "none" and an
+    # empty content field and the body has to be fetched separately. Pin both
+    # shapes: getting this wrong fails only in production, against the real
+    # repo, which is exactly how it slipped through the first time.
+    sample = {"books": [{"id": "1", "title": "t", "genre": ["x"]}]}
+    seen = []
+
+    def _fake_github_request(method, token, body=None, accept=GITHUB_JSON, _big=True):
+        seen.append(accept)
+        if accept == GITHUB_RAW:
+            return 200, json.dumps(sample)
+        if _big:
+            return 200, {"encoding": "none", "content": "", "sha": "SHA_BIG"}
+        blob = base64.b64encode(json.dumps(sample).encode("utf-8")).decode("ascii")
+        return 200, {"encoding": "base64", "content": blob, "sha": "SHA_SMALL"}
+
+    real_request = globals()["github_request"]
+    try:
+        globals()["github_request"] = _fake_github_request
+        assert fetch_remote_catalog("tok") == (sample, "SHA_BIG")
+        assert seen == [GITHUB_JSON, GITHUB_RAW], seen
+
+        seen.clear()
+        globals()["github_request"] = lambda *a, **k: _fake_github_request(*a, _big=False, **k)
+        assert fetch_remote_catalog("tok") == (sample, "SHA_SMALL")
+        assert seen == [GITHUB_JSON], seen
+    finally:
+        globals()["github_request"] = real_request
+
     print("self-check OK")
 
 
@@ -302,21 +331,35 @@ GITHUB_CONTENTS_URL = f"https://api.github.com/repos/{GITHUB_REPO}/contents/cata
 COMMIT_IDENTITY = {"name": "Library Staff", "email": "library-staff@eliav-library.github.io"}
 
 
-def github_request(method, token, body=None):
+GITHUB_JSON = "application/vnd.github+json"
+GITHUB_RAW = "application/vnd.github.raw"
+
+
+def github_request(method, token, body=None, accept=GITHUB_JSON):
+    """One call to the contents API. Returns (status, parsed-JSON), except with
+    accept=GITHUB_RAW, where the file's own bytes come back as a string."""
     data = json.dumps(body).encode("utf-8") if body is not None else None
     headers = {
         "Authorization": f"Bearer {token}",
-        "Accept": "application/vnd.github+json",
+        "Accept": accept,
         "User-Agent": "eliav-library-catalog-sync",
     }
     if data is not None:
         headers["Content-Type"] = "application/json"
     request = urllib.request.Request(GITHUB_CONTENTS_URL, data=data, method=method, headers=headers)
     try:
-        with urllib.request.urlopen(request, timeout=15) as resp:
-            return resp.status, json.loads(resp.read())
+        # 60s, not 15: the push sends the whole catalog base64-encoded (~2 MB
+        # and growing), which is a slow upload on a library's connection.
+        with urllib.request.urlopen(request, timeout=60) as resp:
+            payload = resp.read()
+            if accept == GITHUB_RAW:
+                return resp.status, payload.decode("utf-8")
+            return resp.status, json.loads(payload)
     except urllib.error.HTTPError as e:
-        return e.code, json.loads(e.read())
+        try:
+            return e.code, json.loads(e.read())
+        except ValueError:
+            return e.code, {"message": f"HTTP {e.code} with a non-JSON body"}
 
 
 def fetch_remote_catalog(token):
@@ -327,8 +370,21 @@ def fetch_remote_catalog(token):
         return None, None
     if status != 200:
         raise RuntimeError(f"Could not fetch catalog.json from GitHub (HTTP {status}): {body.get('message')}")
-    content = base64.b64decode(body["content"]).decode("utf-8")
-    return json.loads(content), body["sha"]
+
+    # Past 1 MB, GitHub stops inlining the file: the response still carries the
+    # metadata (crucially the sha) but reports encoding "none" with an empty
+    # content field, and the body must be asked for separately via the raw
+    # media type. This library's catalog crossed that line years' worth of
+    # books ago, so the second request is the normal path, not a rare branch.
+    if body.get("encoding") == "none" or not body.get("content"):
+        status, text = github_request("GET", token, accept=GITHUB_RAW)
+        if status != 200:
+            message = text.get("message") if isinstance(text, dict) else text[:200]
+            raise RuntimeError(f"Could not fetch catalog.json contents from GitHub (HTTP {status}): {message}")
+    else:
+        text = base64.b64decode(body["content"]).decode("utf-8")
+
+    return json.loads(text), body["sha"]
 
 
 def push_remote_catalog(token, data, sha):
