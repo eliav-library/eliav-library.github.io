@@ -348,32 +348,45 @@ def push_remote_catalog(token, data, sha):
         raise RuntimeError(f"Could not push catalog.json to GitHub (HTTP {status}): {resp_body.get('message')}")
 
 
+class AccessUnavailable(Exception):
+    """The ODBC path can't be used on this machine for this database: pyodbc
+    missing, the Access driver not registered (usually a 32/64-bit mismatch),
+    or the file itself refusing to open -- most often because Miriam set a
+    database password. All three mean the same thing to main(): fall back to
+    the pure-Python reader, which needs neither a driver nor the password."""
+
+
 def read_movies_from_access(db_path):
     """Real path (Windows): read title/author/instore rows straight out of
-    Miriam.mdb via ODBC. Raises ImportError if pyodbc or the actual Access
-    driver isn't available, so main() can fall back to the pure-Python
-    reader on platforms without them (checked upfront, rather than trying
-    to connect and pattern-matching the failure message)."""
-    import pyodbc
+    Miriam.mdb via ODBC. Raises AccessUnavailable (never exits) for anything
+    that makes this path unusable, so main() can fall back to the pure-Python
+    reader rather than the run dying here."""
+    try:
+        import pyodbc
+    except ImportError:
+        raise AccessUnavailable("pyodbc is not installed")
 
     if "Microsoft Access Driver (*.mdb, *.accdb)" not in pyodbc.drivers():
-        raise ImportError("Microsoft Access ODBC driver not registered")
+        raise AccessUnavailable(
+            "pyodbc is installed but cannot see the Microsoft Access ODBC driver "
+            "-- usually a 32/64-bit mismatch between Python and the driver"
+        )
 
     conn_str = (
         r"DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};"
         rf"DBQ={db_path};"
     )
+    # Some Miriam installs set a database password. It comes from the
+    # environment for the same reason the GitHub token does: a command-line
+    # argument would end up in shell history and visible in Task Scheduler.
+    db_password = os.environ.get("MIRIAM_PASSWORD")
+    if db_password:
+        conn_str += f"PWD={db_password};"
+
     try:
         conn = pyodbc.connect(conn_str)
     except pyodbc.Error as e:
-        print("Could not open the database.")
-        print("Path tried:", db_path)
-        print("Underlying error:", e)
-        print()
-        print("If this mentions a missing driver, install the free")
-        print('"Microsoft Access Database Engine Redistributable" from Microsoft')
-        print("(match 32-bit/64-bit to your Python install) and try again.")
-        sys.exit(1)
+        raise AccessUnavailable(f"could not open {db_path} -- {e}")
 
     cursor = conn.cursor()
 
@@ -499,14 +512,26 @@ def main():
     else:
         try:
             library_name, rows = read_movies_from_access(db_path)
-        except ImportError:
+        except AccessUnavailable as why:
             try:
                 from access_parser import AccessParser  # noqa: F401 -- availability check
             except ImportError:
-                print("Missing dependency. Run:  pip install pyodbc")
-                print("(or, on a machine without the Windows Access driver:  pip install access_parser)")
+                print("Cannot read Miriam.mdb through the Access ODBC driver:")
+                print(" ", why)
+                print()
+                print("Two ways forward:")
+                print()
+                print("  1. If that says the password is invalid (ODBC error -1905), the")
+                print("     database has a password. Set it once:")
+                print('         setx MIRIAM_PASSWORD "the password"')
+                print("     then open a NEW Command Prompt and run this again.")
+                print()
+                print("  2. Or skip the driver altogether -- a pure-Python reader opens the")
+                print("     same file with no driver, no bitness question and no password:")
+                print("         pip install access_parser")
                 sys.exit(1)
-            print("pyodbc not available -- reading Miriam.mdb via the pure-Python fallback instead.")
+            print(f"ODBC unavailable ({why})")
+            print("Reading Miriam.mdb via the pure-Python fallback instead.")
             library_name, rows = read_movies_pure_python(db_path)
 
     out_path = "catalog.json"

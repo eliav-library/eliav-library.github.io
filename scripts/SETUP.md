@@ -2,8 +2,9 @@
 
 One-time setup so the site stays current on its own. No git, no cloning a
 repo -- `extract_miriam.py` talks to GitHub directly over HTTPS. The only
-things this PC needs are Python (for `pyodbc`, which you already need for
-Miriam itself) and the one script file.
+things this PC needs are Python, the `pyodbc` package, the one script file,
+and the Microsoft Access ODBC driver -- which the PC almost certainly has
+already, since Miriam itself is an Access program.
 
 **How it behaves once set up:** every ~15 minutes while the PC is on
 (starting the moment you log in), it quietly checks Miriam for new books,
@@ -23,9 +24,38 @@ this won't silently overwrite that the next time it runs.
 
 ## 1. Prerequisites on this PC
 
-- Python from https://python.org (check "Add python.exe to PATH" during
-  install), then in Command Prompt: `pip install pyodbc`.
+**Check this before installing Python** -- it decides which Python you want.
+The script reads Miriam.mdb through the Microsoft Access ODBC driver, and
+Python can only use a driver of its own bitness: 64-bit Python cannot use a
+32-bit driver, or the other way round. Miriam is old enough that its driver
+is often the 32-bit one, while python.org's big download button gives you
+64-bit. Getting this backwards is the single most likely way this setup
+wastes an afternoon.
+
+Open both of these and look at the **Drivers** tab for "Microsoft Access
+Driver (*.mdb, *.accdb)":
+
+```
+32-bit:  C:\Windows\SysWOW64\odbcad32.exe
+64-bit:  C:\Windows\System32\odbcad32.exe
+```
+
+Whichever one lists it is the Python you want. (If both list it, either
+works -- take 64-bit.) If *neither* lists it, install the free "Microsoft
+Access Database Engine Redistributable" from Microsoft's site first.
+
+Then:
+
+- Python from https://python.org, in the bitness you just determined (check
+  "Add python.exe to PATH" during install), then in Command Prompt:
+  `pip install pyodbc`.
 - That's it. No Git, no other installs.
+
+**Escape hatch:** if the bitness question turns into a fight -- wrong Python
+already installed, no admin rights to install the driver -- run
+`pip install access_parser` instead. It's a pure-Python .mdb reader, so
+bitness stops mattering entirely, and the script switches to it on its own
+with no change to the command or the output.
 
 ## 2. Get the script
 
@@ -76,6 +106,28 @@ python extract_miriam.py "C:\Miriam\Miriam.mdb"
 Should print progress, then either "No changes since the live catalog"
 or "Pushed. N books live". Check https://eliav-library.github.io/ a
 minute later to confirm it updated.
+
+**If it says the password is invalid** (ODBC error `-1905`, or
+`סיסמה לא חוקית` on a Hebrew Windows): this Miriam install has a database
+password set. Supply it the same way as the GitHub token -- as an
+environment variable, so it never sits in a file or in Task Scheduler's
+arguments box:
+
+```
+setx MIRIAM_PASSWORD "the password"
+```
+
+Then open a **new** Command Prompt and run it again. (Add it through the
+Environment Variables dialog instead if you'd rather not have it in the
+console history.)
+
+If nobody knows the password, `pip install access_parser` is the way out:
+that reader opens the .mdb directly, with no driver and no password, and
+the script switches to it automatically. The trade-off is that it reads
+the file's bytes rather than going through Access's sharing layer, so it
+is better suited to a quiet moment than to a run firing every 15 minutes
+while a librarian is actively lending books. Prefer the password if you
+can get it.
 
 ## 6. Schedule it
 
