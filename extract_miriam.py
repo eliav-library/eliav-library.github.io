@@ -68,9 +68,32 @@ import json
 import base64
 import time
 import datetime
+import ssl
 import urllib.request
 import urllib.parse
 import concurrent.futures
+
+
+def _ssl_context():
+    """Python reads the Windows certificate store through OpenSSL, and on a PC
+    whose root certificates have never been refreshed it finds nothing -- every
+    HTTPS call then dies with CERTIFICATE_VERIFY_FAILED, even though pip and
+    curl work fine on the same machine (they carry their own roots).
+
+    certifi is exactly the bundle pip already trusts, so use it when it is
+    installed. Doing it here rather than through an SSL_CERT_FILE environment
+    variable is deliberate: this runs unattended from Task Scheduler, whose
+    service can hold a stale copy of the user environment and never see a
+    variable set after it started -- a failure that shows up only in the log,
+    hours later, on a PC nobody is watching."""
+    try:
+        import certifi
+    except ImportError:
+        return None  # system store it is; fine wherever Windows keeps roots current
+    return ssl.create_default_context(cafile=certifi.where())
+
+
+SSL_CONTEXT = _ssl_context()
 
 GENRE_TAG_HELP = """
   language:   עברית, אנגלית               (from the title's own script)
@@ -174,7 +197,7 @@ def fetch_book_subjects(title, author):
 
     for attempt in range(4):
         try:
-            with urllib.request.urlopen(request, timeout=8) as resp:
+            with urllib.request.urlopen(request, timeout=8, context=SSL_CONTEXT) as resp:
                 data = json.load(resp)
             docs = data.get("docs", [])
             return [s.lower() for s in docs[0].get("subject", [])] if docs else []
@@ -350,7 +373,7 @@ def github_request(method, token, body=None, accept=GITHUB_JSON):
     try:
         # 60s, not 15: the push sends the whole catalog base64-encoded (~2 MB
         # and growing), which is a slow upload on a library's connection.
-        with urllib.request.urlopen(request, timeout=60) as resp:
+        with urllib.request.urlopen(request, timeout=60, context=SSL_CONTEXT) as resp:
             payload = resp.read()
             if accept == GITHUB_RAW:
                 return resp.status, payload.decode("utf-8")
