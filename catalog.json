@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-11T17:30:09",
+  "generatedAt": "2026-10-11T18:00:08",
   "libraryName": "ספריית אליאב",
   "books": [
     {
@@ -3237,7 +3237,7 @@
         "נוער",
         "קומיקס"
       ],
-      "status": "available"
+      "status": "out"
     },
     {
       "id": "1272",
@@ -4842,7 +4842,7 @@
         "נוער",
         "קומיקס"
       ],
-      "status": "available"
+      "status": "out"
     },
     {
       "id": "1407",
@@ -5200,7 +5200,7 @@
         "נוער",
         "קומיקס"
       ],
-      "status": "out"
+      "status": "available"
     },
     {
       "id": "1435",
@@ -5236,7 +5236,7 @@
         "נוער",
         "קומיקס"
       ],
-      "status": "available"
+      "status": "out"
     },
     {
       "id": "1438",
