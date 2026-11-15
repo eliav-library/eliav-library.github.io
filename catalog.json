@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-15T20:45:13",
+  "generatedAt": "2026-11-15T21:15:13",
   "libraryName": "ספריית אליאב",
   "books": [
     {
@@ -73531,6 +73531,182 @@
         "עברית",
         "נוער",
         "מבוגרים"
+      ],
+      "status": "available"
+    },
+    {
+      "id": "745",
+      "title": "מכשפה עצלנית - מדריך העצלה לקסם 1",
+      "author": "הלן הרפר",
+      "publisher": "",
+      "genre": [
+        "עברית",
+        "נוער"
+      ],
+      "status": "available"
+    },
+    {
+      "id": "746",
+      "title": "עין תחת עין",
+      "author": "ג'פרי ארצ'ר",
+      "publisher": "",
+      "genre": [
+        "עברית",
+        "מבוגרים"
+      ],
+      "status": "available"
+    },
+    {
+      "id": "747",
+      "title": "מכשפה ידוענית מדריך העצלה לקסם 2",
+      "author": "הלן הרפר",
+      "publisher": "",
+      "genre": [
+        "עברית",
+        "נוער"
+      ],
+      "status": "available"
+    },
+    {
+      "id": "748",
+      "title": "עברי אהובי",
+      "author": "מרים דיקשטיין",
+      "publisher": "",
+      "genre": [
+        "עברית",
+        "מבוגרים"
+      ],
+      "status": "out"
+    },
+    {
+      "id": "749",
+      "title": "הארי פוטר ואוצרות המוות",
+      "author": "ג'יי קיי רולינג",
+      "publisher": "",
+      "genre": [
+        "עברית",
+        "נוער"
+      ],
+      "status": "available"
+    },
+    {
+      "id": "750",
+      "title": "סוניק 5 עיר בסכנה",
+      "author": "איאן פלין",
+      "publisher": "",
+      "genre": [
+        "עברית",
+        "ילדים"
+      ],
+      "status": "available"
+    },
+    {
+      "id": "751",
+      "title": "סוניק 6 הרגע האחרון",
+      "author": "איאן פלין",
+      "publisher": "",
+      "genre": [
+        "עברית",
+        "מבוגרים"
+      ],
+      "status": "available"
+    },
+    {
+      "id": "752",
+      "title": "סוניק 7 הכל או כלום",
+      "author": "איאן פלין",
+      "publisher": "",
+      "genre": [
+        "עברית",
+        "ילדים"
+      ],
+      "status": "available"
+    },
+    {
+      "id": "753",
+      "title": "סוניק 8 הכחול הגדול",
+      "author": "איאן פלין",
+      "publisher": "",
+      "genre": [
+        "עברית",
+        "ילדים"
+      ],
+      "status": "available"
+    },
+    {
+      "id": "754",
+      "title": "מבצע קציצה",
+      "author": "בן מקנטייר",
+      "publisher": "",
+      "genre": [
+        "עברית",
+        "מבוגרים"
+      ],
+      "status": "available"
+    },
+    {
+      "id": "755",
+      "title": "חמש אצבעות על היעד חלק א",
+      "author": "שרון צוהר",
+      "publisher": "",
+      "genre": [
+        "עברית",
+        "מבוגרים"
+      ],
+      "status": "available"
+    },
+    {
+      "id": "756",
+      "title": "חמש אצבעות על היעד חלק ב",
+      "author": "קשרון צוהר",
+      "publisher": "",
+      "genre": [
+        "עברית",
+        "מבוגרים"
+      ],
+      "status": "available"
+    },
+    {
+      "id": "757",
+      "title": "מכשפה רוחנית מדריך העצלה לקסם",
+      "author": "הלן הרפר",
+      "publisher": "",
+      "genre": [
+        "עברית",
+        "נוער"
+      ],
+      "status": "available"
+    },
+    {
+      "id": "758",
+      "title": "מכשפה רוחנית מדריך העצלה לקסם 3",
+      "author": "הלן הרפר",
+      "publisher": "",
+      "genre": [
+        "עברית",
+        "נוער"
+      ],
+      "status": "available"
+    },
+    {
+      "id": "759",
+      "title": "ארנה 1",
+      "author": "לה שף אוטאקו",
+      "publisher": "",
+      "genre": [
+        "עברית",
+        "נוער"
+      ],
+      "status": "available"
+    },
+    {
+      "id": "760",
+      "title": "ארנה 2",
+      "author": "לה שף אוטאקו",
+      "publisher": "",
+      "genre": [
+        "עברית",
+        "נוער"
       ],
       "status": "available"
     }
